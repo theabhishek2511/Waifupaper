@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <ListPreference
+        android:defaultValue="False"
+        android:entries="@array/nsfw_entries"
+        android:entryValues="@array/nsfw_values"
+        android:key="nsfw"
+        android:summary="%s"
+        android:title="@string/pref_nsfw_title" />
+
+    <ListPreference
+        android:defaultValue="All"
+        android:entries="@array/orientation_entries"
+        android:entryValues="@array/orientation_values"
+        android:key="orientation"
+        android:summary="%s"
+        android:title="@string/pref_orientation_title" />
+
+    <ListPreference
+        android:defaultValue="1800"
+        android:entries="@array/interval_entries"
+        android:entryValues="@array/interval_values"
+        android:key="time_interval"
+        android:summary="%s"
+        android:title="@string/pref_interval_title" />
+
+    <Preference
+        android:key="view_cache"
+        android:title="@string/pref_view_cache_title"
+        android:summary="@string/pref_view_cache_summary" />
+
+    <Preference
+        android:key="clear_cache"
+        android:title="@string/pref_clear_cache_title"
+        android:summary="@string/pref_clear_cache_summary" />
+
+</PreferenceScreen>

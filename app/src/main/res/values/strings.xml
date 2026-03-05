@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Waifupaper</string>
+    <string name="wallpaper_description">Live wallpaper that displays random anime images from
+        waifu.im</string>
+    <string name="set_as_wallpaper">Set as Live Wallpaper</string>
+    <string name="pref_nsfw_title">Content Filter</string>
+    <string name="pref_orientation_title">Image Orientation</string>
+    <string name="pref_interval_title">Change Interval</string>
+    <string name="pref_view_cache_title">View Cache</string>
+    <string name="pref_view_cache_summary">Browse cached wallpaper images</string>
+    <string name="pref_clear_cache_title">Clear Cache</string>
+    <string name="pref_clear_cache_summary">Delete all downloaded images</string>
+    <string name="cache_empty">No cached images</string>
+    <string name="cached_image_desc">Cached wallpaper image</string>
+    <string name="cache_cleared">Cache cleared</string>
+</resources>
