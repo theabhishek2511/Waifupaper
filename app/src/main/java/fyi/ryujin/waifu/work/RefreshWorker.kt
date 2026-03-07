@@ -11,7 +11,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import fyi.ryujin.waifu.data.ImageRepository
 import fyi.ryujin.waifu.data.WallpaperPreferences
-import android.util.Log
+import fyi.ryujin.waifu.util.AppLogger
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import kotlin.math.floor
@@ -24,6 +24,8 @@ class RefreshWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        AppLogger.init(applicationContext)
+        AppLogger.i(TAG, "=== Worker started (attempt #$runAttemptCount) ===")
         val prefs = WallpaperPreferences(applicationContext)
         val repo = ImageRepository(applicationContext)
 
@@ -32,17 +34,26 @@ class RefreshWorker(
             else floor(86400.0 / prefs.timeInterval).toInt()
         }
 
-        Log.i(TAG, "doWork: pageSize=$pageSize nsfw=${prefs.nsfw} orientation=${prefs.orientation} interval=${prefs.timeInterval}")
-        if (pageSize <= 0) return Result.success()
+        AppLogger.i(TAG, "Config: pageSize=$pageSize nsfw=${prefs.nsfw} orientation=${prefs.orientation} interval=${prefs.timeInterval}s")
+        if (pageSize <= 0) {
+            AppLogger.w(TAG, "pageSize=$pageSize, nothing to do")
+            return Result.success()
+        }
 
         return try {
             repo.refreshImages(prefs.nsfw, prefs.orientation, pageSize)
             scheduleMidnightRefresh(applicationContext)
-            Log.i(TAG, "doWork: completed successfully")
+            AppLogger.i(TAG, "=== Worker completed successfully ===")
             Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "doWork: failed (attempt $runAttemptCount)", e)
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            AppLogger.e(TAG, "Worker failed (attempt #$runAttemptCount)", e)
+            if (runAttemptCount < 3) {
+                AppLogger.i(TAG, "Will retry (attempt ${runAttemptCount + 1}/3)")
+                Result.retry()
+            } else {
+                AppLogger.e(TAG, "All 3 attempts exhausted, giving up")
+                Result.failure()
+            }
         }
     }
 
@@ -61,6 +72,9 @@ class RefreshWorker(
                 set(Calendar.MILLISECOND, 0)
             }
             val delayMillis = midnight.timeInMillis - now
+            val delayHours = delayMillis / 3_600_000.0
+
+            AppLogger.i(TAG, "Scheduling midnight refresh in %.1f hours".format(delayHours))
 
             val request = OneTimeWorkRequestBuilder<RefreshWorker>()
                 .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
@@ -76,6 +90,7 @@ class RefreshWorker(
         }
 
         fun triggerSettingsChanged(context: Context) {
+            AppLogger.i(TAG, "Settings changed, triggering immediate refresh")
             val prefs = WallpaperPreferences(context)
             val secondsToMidnight = run {
                 val now = Calendar.getInstance()
@@ -90,8 +105,12 @@ class RefreshWorker(
             }
             val pageSize = floor(secondsToMidnight.toDouble() / prefs.timeInterval).toInt()
 
-            if (pageSize <= 0) return
+            if (pageSize <= 0) {
+                AppLogger.w(TAG, "triggerSettingsChanged: pageSize=$pageSize, skipping")
+                return
+            }
 
+            AppLogger.i(TAG, "Settings refresh: pageSize=$pageSize secondsToMidnight=$secondsToMidnight interval=${prefs.timeInterval}")
             val data = workDataOf(KEY_PAGE_SIZE to pageSize)
             val request = OneTimeWorkRequestBuilder<RefreshWorker>()
                 .setInputData(data)
@@ -109,6 +128,7 @@ class RefreshWorker(
         }
 
         fun ensureImages(context: Context) {
+            AppLogger.i(TAG, "ensureImages: checking if initial fetch needed")
             val prefs = WallpaperPreferences(context)
             val secondsToMidnight = run {
                 val now = Calendar.getInstance()
@@ -121,10 +141,9 @@ class RefreshWorker(
                 }
                 (midnight.timeInMillis - now.timeInMillis) / 1000
             }
-            val pageSize = floor(secondsToMidnight.toDouble() / prefs.timeInterval).toInt()
+            val pageSize = maxOf(1, floor(secondsToMidnight.toDouble() / prefs.timeInterval).toInt())
 
-            if (pageSize <= 0) return
-
+            AppLogger.i(TAG, "ensureImages: pageSize=$pageSize secondsToMidnight=$secondsToMidnight interval=${prefs.timeInterval}")
             val data = workDataOf(KEY_PAGE_SIZE to pageSize)
             val request = OneTimeWorkRequestBuilder<RefreshWorker>()
                 .setInputData(data)

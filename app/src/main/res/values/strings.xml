@@ -6,11 +6,21 @@
     <string name="pref_nsfw_title">Content Filter</string>
     <string name="pref_orientation_title">Image Orientation</string>
     <string name="pref_interval_title">Change Interval</string>
+    <string name="pref_overlay_title">Dark Overlay</string>
+    <string name="pref_overlay_summary">Darken wallpaper so UI elements stay visible</string>
     <string name="pref_view_cache_title">View Cache</string>
     <string name="pref_view_cache_summary">Browse cached wallpaper images</string>
     <string name="pref_clear_cache_title">Clear Cache</string>
-    <string name="pref_clear_cache_summary">Delete all downloaded images</string>
+    <string name="pref_clear_cache_summary">Delete and redownload fresh images</string>
     <string name="cache_empty">No cached images</string>
     <string name="cached_image_desc">Cached wallpaper image</string>
     <string name="cache_cleared">Cache cleared</string>
+    <string name="pref_category_logs">Logs</string>
+    <string name="pref_export_logs_title">Export Logs</string>
+    <string name="pref_export_logs_summary">Share the log file for debugging</string>
+    <string name="pref_clear_logs_title">Clear Logs</string>
+    <string name="pref_clear_logs_summary">Delete all log files</string>
+    <string name="no_logs">No logs to export</string>
+    <string name="logs_cleared">Logs cleared</string>
+    <string name="export_logs_chooser">Export logs via</string>
 </resources>

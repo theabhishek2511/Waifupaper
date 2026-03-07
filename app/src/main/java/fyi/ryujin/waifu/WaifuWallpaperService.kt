@@ -1,5 +1,6 @@
 package fyi.ryujin.waifu
 
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -9,10 +10,10 @@ import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
-import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.SurfaceHolder
+import fyi.ryujin.waifu.util.AppLogger
 import fyi.ryujin.waifu.data.WallpaperPreferences
 import fyi.ryujin.waifu.work.RefreshWorker
 import java.io.File
@@ -33,11 +34,27 @@ class WaifuWallpaperService : WallpaperService() {
         private var surfaceWidth = 0
         private var surfaceHeight = 0
         private var manualOffset = 0
+        private var knownCacheVersion = -1
 
         private var fadeAlpha = 255
         private var fadeStartTime = 0L
         private val fadeDuration = 500L
         private val paint = Paint()
+
+        private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "cache_version") {
+                AppLogger.i(TAG, "Cache refreshed, resetting wallpaper cycle")
+                manualOffset = 0
+                lastIndex = -1
+                currentBitmap?.recycle()
+                currentBitmap = null
+                knownCacheVersion = WallpaperPreferences(this@WaifuWallpaperService).cacheVersion
+                if (visible) {
+                    updateAndDraw()
+                    scheduleNextChange()
+                }
+            }
+        }
 
         private val gestureDetector = GestureDetector(
             this@WaifuWallpaperService,
@@ -47,6 +64,7 @@ class WaifuWallpaperService : WallpaperService() {
                     if (count > 0) {
                         manualOffset = (manualOffset + 1) % count
                         lastIndex = -1
+                        AppLogger.d(TAG, "Double-tap: cycling to offset=$manualOffset (of $count)")
                         updateAndDraw()
                     }
                     return true
@@ -78,6 +96,11 @@ class WaifuWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
+            AppLogger.init(this@WaifuWallpaperService)
+            AppLogger.i(TAG, "WallpaperEngine created")
+            knownCacheVersion = WallpaperPreferences(this@WaifuWallpaperService).cacheVersion
+            androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@WaifuWallpaperService)
+                .registerOnSharedPreferenceChangeListener(prefsListener)
             RefreshWorker.scheduleMidnightRefresh(this@WaifuWallpaperService)
         }
 
@@ -87,6 +110,7 @@ class WaifuWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
+            AppLogger.d(TAG, "Visibility changed: visible=$visible")
             if (visible) {
                 updateAndDraw()
                 scheduleNextChange()
@@ -104,6 +128,7 @@ class WaifuWallpaperService : WallpaperService() {
             super.onSurfaceChanged(holder, format, width, height)
             surfaceWidth = width
             surfaceHeight = height
+            AppLogger.d(TAG, "Surface changed: ${width}x${height}")
             // Force reload at new size
             lastIndex = -1
             currentBitmap?.recycle()
@@ -113,6 +138,7 @@ class WaifuWallpaperService : WallpaperService() {
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             super.onSurfaceDestroyed(holder)
+            AppLogger.d(TAG, "Surface destroyed")
             visible = false
             handler.removeCallbacks(changeRunnable)
             handler.removeCallbacks(retryRunnable)
@@ -121,6 +147,9 @@ class WaifuWallpaperService : WallpaperService() {
 
         override fun onDestroy() {
             super.onDestroy()
+            AppLogger.i(TAG, "WallpaperEngine destroyed")
+            androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@WaifuWallpaperService)
+                .unregisterOnSharedPreferenceChangeListener(prefsListener)
             handler.removeCallbacksAndMessages(null)
             currentBitmap?.recycle()
             currentBitmap = null
@@ -131,8 +160,9 @@ class WaifuWallpaperService : WallpaperService() {
         private fun updateAndDraw() {
             val count = getCachedImageCount()
             val index = getCurrentImageIndex()
-            Log.d(TAG, "updateAndDraw: index=$index lastIndex=$lastIndex count=$count surface=${surfaceWidth}x${surfaceHeight}")
+            AppLogger.d(TAG, "updateAndDraw: index=$index lastIndex=$lastIndex count=$count surface=${surfaceWidth}x${surfaceHeight}")
             if (count == 0) {
+                AppLogger.d(TAG, "No cached images, drawing blank and retrying in 5s")
                 drawFrame()
                 // Retry in 5 seconds — images may still be downloading
                 if (visible) {
@@ -144,7 +174,7 @@ class WaifuWallpaperService : WallpaperService() {
             handler.removeCallbacks(retryRunnable)
             if (index != lastIndex || currentBitmap == null) {
                 val file = getCachedImageFile(index)
-                Log.d(TAG, "Loading file: ${file?.absolutePath} exists=${file?.exists()}")
+                AppLogger.d(TAG, "Loading image: ${file?.name} exists=${file?.exists()}")
                 if (file != null) {
                     val newBitmap = decodeSampledBitmap(file, surfaceWidth, surfaceHeight)
                     if (newBitmap != null) {
@@ -155,10 +185,10 @@ class WaifuWallpaperService : WallpaperService() {
                         fadeAlpha = 0
                         fadeStartTime = System.currentTimeMillis()
                         animateFade()
-                        Log.d(TAG, "Bitmap loaded: ${newBitmap.width}x${newBitmap.height}")
+                        AppLogger.d(TAG, "Bitmap loaded: ${newBitmap.width}x${newBitmap.height} from ${file.name}")
                         return
                     } else {
-                        Log.e(TAG, "Failed to decode bitmap from ${file.absolutePath}")
+                        AppLogger.e(TAG, "Failed to decode bitmap from ${file.name}")
                     }
                 }
             }
@@ -179,6 +209,12 @@ class WaifuWallpaperService : WallpaperService() {
                     currentBitmap?.let {
                         paint.alpha = fadeAlpha
                         drawCenterCrop(canvas, it, paint)
+                    }
+                    // Dark overlay
+                    val overlayPct = WallpaperPreferences(this@WaifuWallpaperService).overlayDarkness
+                    if (overlayPct > 0) {
+                        val overlayAlpha = (overlayPct * 255 / 100).coerceIn(0, 255)
+                        canvas.drawColor(Color.argb(overlayAlpha, 0, 0, 0))
                     }
                 }
             } finally {
@@ -226,6 +262,7 @@ class WaifuWallpaperService : WallpaperService() {
                         now.get(Calendar.MINUTE) * 60 +
                         now.get(Calendar.SECOND)
                 val nextChangeIn = prefs.timeInterval - (secondsSinceMidnight % prefs.timeInterval)
+                AppLogger.d(TAG, "Next wallpaper change in ${nextChangeIn}s")
                 handler.postDelayed(changeRunnable, nextChangeIn * 1000L)
             }
         }

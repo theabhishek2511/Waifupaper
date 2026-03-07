@@ -1,14 +1,15 @@
 package fyi.ryujin.waifu.data
 
 import android.content.Context
-import android.util.Log
 import fyi.ryujin.waifu.api.WaifuApi
+import fyi.ryujin.waifu.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
+import androidx.preference.PreferenceManager
 
 private const val TAG = "ImageRepository"
 
@@ -20,6 +21,7 @@ class ImageRepository(context: Context) {
         .build()
     private val baseDir = context.filesDir
     private val cacheDir = File(baseDir, "wallpapers")
+    private val appPrefs = PreferenceManager.getDefaultSharedPreferences(context)
     @Volatile private var lastRequestTime = 0L
 
     init {
@@ -37,18 +39,23 @@ class ImageRepository(context: Context) {
 
     suspend fun refreshImages(nsfw: String, orientation: String, totalNeeded: Int) =
         withContext(Dispatchers.IO) {
-            Log.i(TAG, "refreshImages: nsfw=$nsfw orientation=$orientation totalNeeded=$totalNeeded")
+            AppLogger.i(TAG, "=== Refresh started: nsfw=$nsfw orientation=$orientation totalNeeded=$totalNeeded ===")
             val tempDir = File(baseDir, "wallpapers_tmp")
             val created = tempDir.mkdirs()
-            Log.d(TAG, "tempDir=$tempDir exists=${tempDir.exists()} created=$created")
+            AppLogger.d(TAG, "Temp dir: path=$tempDir exists=${tempDir.exists()} created=$created")
+            val cleaned = tempDir.listFiles()?.size ?: 0
             tempDir.listFiles()?.forEach { it.delete() }
+            if (cleaned > 0) AppLogger.d(TAG, "Cleaned $cleaned stale temp files")
 
             var remaining = totalNeeded
             var index = 0
+            var batchNum = 0
+            var downloadErrors = 0
 
             while (remaining > 0) {
+                batchNum++
                 val batchSize = minOf(remaining, 30)
-                Log.d(TAG, "Fetching batch: size=$batchSize remaining=$remaining")
+                AppLogger.d(TAG, "Batch #$batchNum: requesting $batchSize images ($remaining remaining)")
                 val response = try {
                     rateLimit()
                     api.getImages(
@@ -58,12 +65,15 @@ class ImageRepository(context: Context) {
                         pageSize = batchSize
                     )
                 } catch (e: Exception) {
-                    Log.e(TAG, "API call failed", e)
+                    AppLogger.e(TAG, "Batch #$batchNum: API call failed, aborting refresh", e)
                     break
                 }
 
-                Log.d(TAG, "API returned ${response.items.size} images")
-                if (response.items.isEmpty()) break
+                AppLogger.d(TAG, "Batch #$batchNum: API returned ${response.items.size} images")
+                if (response.items.isEmpty()) {
+                    AppLogger.w(TAG, "Batch #$batchNum: API returned empty list, stopping")
+                    break
+                }
 
                 for (image in response.items) {
                     try {
@@ -71,35 +81,52 @@ class ImageRepository(context: Context) {
                         downloadImage(image.url, index, tempDir)
                         index++
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to download ${image.url}", e)
+                        downloadErrors++
+                        AppLogger.e(TAG, "Download failed (#$downloadErrors): ${image.url}", e)
                     }
                 }
 
                 remaining -= response.items.size
             }
 
-            Log.i(TAG, "Downloaded $index images total")
+            val oldCount = cacheDir.listFiles()?.size ?: 0
+            AppLogger.i(TAG, "Download complete: $index images downloaded, $downloadErrors errors, $batchNum batches")
             // Swap: clear old cache, move temp files in
             if (index > 0) {
                 cacheDir.listFiles()?.forEach { it.delete() }
                 tempDir.listFiles()?.forEach { it.renameTo(File(cacheDir, it.name)) }
+                AppLogger.i(TAG, "Cache swapped: $oldCount old -> $index new images")
+                val newVersion = appPrefs.getInt("cache_version", 0) + 1
+                appPrefs.edit().putInt("cache_version", newVersion).apply()
+                AppLogger.d(TAG, "Cache version bumped to $newVersion")
+            } else {
+                AppLogger.w(TAG, "No images downloaded, keeping existing cache ($oldCount images)")
             }
             tempDir.delete()
+            AppLogger.i(TAG, "=== Refresh finished ===")
         }
 
     private fun downloadImage(url: String, index: Int, targetDir: File) {
-        if (!url.startsWith("https://")) return
+        if (!url.startsWith("https://")) {
+            AppLogger.w(TAG, "Skipping non-HTTPS URL: $url")
+            return
+        }
         targetDir.mkdirs()
 
         val ext = url.substringAfterLast('.', "jpg")
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return
+            if (!response.isSuccessful) {
+                AppLogger.w(TAG, "Download HTTP ${response.code}: $url")
+                return
+            }
+            val file = File(targetDir, "$index.$ext")
             response.body?.byteStream()?.use { input ->
-                File(targetDir, "$index.$ext").outputStream().use { output ->
+                file.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
+            AppLogger.d(TAG, "Downloaded #$index: ${file.name} (${file.length() / 1024}KB)")
         }
     }
 }

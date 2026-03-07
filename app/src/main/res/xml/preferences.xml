@@ -1,29 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <ListPreference
         android:defaultValue="False"
         android:entries="@array/nsfw_entries"
         android:entryValues="@array/nsfw_values"
         android:key="nsfw"
-        android:summary="%s"
-        android:title="@string/pref_nsfw_title" />
+        android:title="@string/pref_nsfw_title"
+        app:useSimpleSummaryProvider="true" />
 
     <ListPreference
-        android:defaultValue="All"
+        android:defaultValue="Portrait"
         android:entries="@array/orientation_entries"
         android:entryValues="@array/orientation_values"
         android:key="orientation"
-        android:summary="%s"
-        android:title="@string/pref_orientation_title" />
+        android:title="@string/pref_orientation_title"
+        app:useSimpleSummaryProvider="true" />
 
     <ListPreference
         android:defaultValue="1800"
         android:entries="@array/interval_entries"
         android:entryValues="@array/interval_values"
         android:key="time_interval"
-        android:summary="%s"
-        android:title="@string/pref_interval_title" />
+        android:title="@string/pref_interval_title"
+        app:useSimpleSummaryProvider="true" />
+
+    <androidx.preference.SeekBarPreference
+        android:key="overlay_darkness"
+        android:title="@string/pref_overlay_title"
+        android:summary="@string/pref_overlay_summary"
+        android:defaultValue="20"
+        android:max="100"
+        app:min="0"
+        app:showSeekBarValue="true" />
 
     <Preference
         android:key="view_cache"
@@ -34,5 +44,20 @@
         android:key="clear_cache"
         android:title="@string/pref_clear_cache_title"
         android:summary="@string/pref_clear_cache_summary" />
+
+    <PreferenceCategory
+        android:title="@string/pref_category_logs">
+
+        <Preference
+            android:key="export_logs"
+            android:title="@string/pref_export_logs_title"
+            android:summary="@string/pref_export_logs_summary" />
+
+        <Preference
+            android:key="clear_logs"
+            android:title="@string/pref_clear_logs_title"
+            android:summary="@string/pref_clear_logs_summary" />
+
+    </PreferenceCategory>
 
 </PreferenceScreen>
