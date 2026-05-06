@@ -1,5 +1,6 @@
 package fyi.ryujin.waifu
 
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -25,6 +26,7 @@ class CacheViewerActivity : AppCompatActivity() {
 
         val dir = File(filesDir, "wallpapers")
         val files = dir.listFiles()
+            ?.filter { it.isFile && it.extension.lowercase() in IMAGE_EXTENSIONS }
             ?.sortedBy { it.nameWithoutExtension.toIntOrNull() ?: 0 }
             ?: emptyList()
 
@@ -35,11 +37,19 @@ class CacheViewerActivity : AppCompatActivity() {
             emptyText.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
             recyclerView.layoutManager = GridLayoutManager(this, 3)
-            recyclerView.adapter = CacheAdapter(files)
+            recyclerView.adapter = CacheAdapter(files) { file ->
+                startActivity(
+                    Intent(this, CachedImageDetailActivity::class.java)
+                        .putExtra(CachedImageDetailActivity.EXTRA_FILE_NAME, file.name)
+                )
+            }
         }
     }
 
-    private class CacheAdapter(private val files: List<File>) :
+    private class CacheAdapter(
+        private val files: List<File>,
+        private val onClick: (File) -> Unit
+    ) :
         RecyclerView.Adapter<CacheAdapter.ViewHolder>() {
 
         class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -53,11 +63,17 @@ class CacheViewerActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            val file = files[position]
             val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-            val bitmap = BitmapFactory.decodeFile(files[position].absolutePath, options)
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
             holder.imageView.setImageBitmap(bitmap)
+            holder.imageView.setOnClickListener { onClick(file) }
         }
 
         override fun getItemCount() = files.size
+    }
+
+    companion object {
+        val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif")
     }
 }

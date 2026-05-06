@@ -41,7 +41,7 @@ class RefreshWorker(
         }
 
         return try {
-            repo.refreshImages(prefs.nsfw, prefs.orientation, pageSize)
+            repo.refreshImages(prefs.nsfw, prefs.orientation, pageSize, prefs.timeInterval)
             scheduleMidnightRefresh(applicationContext)
             AppLogger.i(TAG, "=== Worker completed successfully ===")
             Result.success()

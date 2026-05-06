@@ -1,25 +1,43 @@
 package fyi.ryujin.waifu
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.SurfaceHolder
-import fyi.ryujin.waifu.util.AppLogger
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.preference.PreferenceManager
+import com.google.gson.Gson
+import fyi.ryujin.waifu.api.WaifuImage
+import fyi.ryujin.waifu.data.KEY_CACHE_START_SLOT
 import fyi.ryujin.waifu.data.WallpaperPreferences
+import fyi.ryujin.waifu.util.AppLogger
 import fyi.ryujin.waifu.work.RefreshWorker
 import java.io.File
 import java.util.Calendar
 
 private const val TAG = "WaifuWallpaper"
+private const val NOTIFICATION_CHANNEL_ID = "current_wallpaper"
+private const val NOTIFICATION_ID = 1201
+const val KEY_NEXT_WALLPAPER_REQUESTS = "next_wallpaper_requests"
 
 class WaifuWallpaperService : WallpaperService() {
 
@@ -40,18 +58,28 @@ class WaifuWallpaperService : WallpaperService() {
         private var fadeStartTime = 0L
         private val fadeDuration = 500L
         private val paint = Paint()
+        private val sharedPrefs by lazy {
+            PreferenceManager.getDefaultSharedPreferences(this@WaifuWallpaperService)
+        }
+        private val gson = Gson()
 
         private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "cache_version") {
-                AppLogger.i(TAG, "Cache refreshed, resetting wallpaper cycle")
-                manualOffset = 0
-                lastIndex = -1
-                currentBitmap?.recycle()
-                currentBitmap = null
-                knownCacheVersion = WallpaperPreferences(this@WaifuWallpaperService).cacheVersion
-                if (visible) {
-                    updateAndDraw()
-                    scheduleNextChange()
+            when (key) {
+                "cache_version" -> {
+                    AppLogger.i(TAG, "Cache refreshed, resetting wallpaper cycle")
+                    manualOffset = 0
+                    lastIndex = -1
+                    currentBitmap?.recycle()
+                    currentBitmap = null
+                    knownCacheVersion = WallpaperPreferences(this@WaifuWallpaperService).cacheVersion
+                    if (visible) {
+                        updateAndDraw()
+                        scheduleNextChange()
+                    }
+                }
+                KEY_NEXT_WALLPAPER_REQUESTS -> {
+                    AppLogger.i(TAG, "Next wallpaper requested from notification")
+                    showNextWallpaper()
                 }
             }
         }
@@ -60,13 +88,7 @@ class WaifuWallpaperService : WallpaperService() {
             this@WaifuWallpaperService,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    val count = getCachedImageCount()
-                    if (count > 0) {
-                        manualOffset = (manualOffset + 1) % count
-                        lastIndex = -1
-                        AppLogger.d(TAG, "Double-tap: cycling to offset=$manualOffset (of $count)")
-                        updateAndDraw()
-                    }
+                    showNextWallpaper()
                     return true
                 }
             }
@@ -99,8 +121,7 @@ class WaifuWallpaperService : WallpaperService() {
             AppLogger.init(this@WaifuWallpaperService)
             AppLogger.i(TAG, "WallpaperEngine created")
             knownCacheVersion = WallpaperPreferences(this@WaifuWallpaperService).cacheVersion
-            androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@WaifuWallpaperService)
-                .registerOnSharedPreferenceChangeListener(prefsListener)
+            sharedPrefs.registerOnSharedPreferenceChangeListener(prefsListener)
             RefreshWorker.scheduleMidnightRefresh(this@WaifuWallpaperService)
         }
 
@@ -148,8 +169,7 @@ class WaifuWallpaperService : WallpaperService() {
         override fun onDestroy() {
             super.onDestroy()
             AppLogger.i(TAG, "WallpaperEngine destroyed")
-            androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@WaifuWallpaperService)
-                .unregisterOnSharedPreferenceChangeListener(prefsListener)
+            sharedPrefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
             handler.removeCallbacksAndMessages(null)
             currentBitmap?.recycle()
             currentBitmap = null
@@ -185,6 +205,7 @@ class WaifuWallpaperService : WallpaperService() {
                         fadeAlpha = 0
                         fadeStartTime = System.currentTimeMillis()
                         animateFade()
+                        showCurrentWallpaperNotification(file)
                         AppLogger.d(TAG, "Bitmap loaded: ${newBitmap.width}x${newBitmap.height} from ${file.name}")
                         return
                     } else {
@@ -193,6 +214,123 @@ class WaifuWallpaperService : WallpaperService() {
                 }
             }
             drawFrame()
+        }
+
+        private fun showNextWallpaper() {
+            val count = getCachedImageCount()
+            if (count > 0) {
+                manualOffset = (manualOffset + 1) % count
+                lastIndex = -1
+                AppLogger.d(TAG, "Cycling to offset=$manualOffset (of $count)")
+                updateAndDraw()
+                scheduleNextChange()
+            }
+        }
+
+        private fun showCurrentWallpaperNotification(file: File) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this@WaifuWallpaperService, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                AppLogger.d(TAG, "Skipping current wallpaper notification: notification permission not granted")
+                return
+            }
+
+            val metadata = readMetadata(file)
+            val imageId = metadata?.id?.toString() ?: file.nameWithoutExtension
+            val artist = metadata?.artists.orEmpty().firstNotNullOfOrNull { it.name }
+                ?: getString(R.string.metadata_unknown_artist)
+            val source = metadata?.source?.takeIf { it.isNotBlank() }
+                ?: metadata?.url?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.metadata_unknown_source)
+            val sourceUrl = source.takeIf { it.isHttpUrl() } ?: metadata?.url?.takeIf { it.isHttpUrl() }
+            val waifuUrl = metadata?.id?.let { waifuPreviewUrl(it) }
+
+            val manager = NotificationManagerCompat.from(this@WaifuWallpaperService)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    getString(R.string.metadata_notification_channel),
+                    NotificationManager.IMPORTANCE_MIN
+                ).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                    description = getString(R.string.metadata_notification_channel_desc)
+                }
+                manager.createNotificationChannel(channel)
+            }
+
+            val openImageIntent = Intent(this@WaifuWallpaperService, CachedImageDetailActivity::class.java)
+                .putExtra(CachedImageDetailActivity.EXTRA_FILE_NAME, file.name)
+            val openImagePendingIntent = PendingIntent.getActivity(
+                this@WaifuWallpaperService,
+                file.name.hashCode(),
+                openImageIntent,
+                pendingIntentFlags()
+            )
+
+            val nextPendingIntent = PendingIntent.getBroadcast(
+                this@WaifuWallpaperService,
+                0,
+                Intent(this@WaifuWallpaperService, WallpaperNotificationReceiver::class.java)
+                    .setAction(WallpaperNotificationReceiver.ACTION_NEXT_WALLPAPER),
+                pendingIntentFlags()
+            )
+
+            val builder = NotificationCompat.Builder(this@WaifuWallpaperService, NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_wallpaper)
+                .setContentTitle(imageId)
+                .setContentText(artist)
+                .setSubText(source)
+                .setStyle(NotificationCompat.BigTextStyle().bigText("$artist\n$source"))
+                .setContentIntent(openImagePendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setSilent(true)
+                .setShowWhen(false)
+                .setLocalOnly(true)
+                .setAutoCancel(false)
+                .setOngoing(false)
+                .addAction(R.drawable.ic_open_in_browser, getString(R.string.open_source), sourceUrl?.let { url ->
+                    PendingIntent.getActivity(
+                        this@WaifuWallpaperService,
+                        url.hashCode(),
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                        pendingIntentFlags()
+                    )
+                } ?: openImagePendingIntent)
+                .addAction(R.drawable.ic_open_in_browser, getString(R.string.open_on_waifu), waifuUrl?.let { url ->
+                    PendingIntent.getActivity(
+                        this@WaifuWallpaperService,
+                        url.hashCode(),
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                        pendingIntentFlags()
+                    )
+                } ?: openImagePendingIntent)
+                .addAction(R.drawable.ic_skip_next, getString(R.string.next_wallpaper), nextPendingIntent)
+
+            manager.notify(NOTIFICATION_ID, builder.build())
+        }
+
+        private fun readMetadata(file: File): WaifuImage? {
+            val metadataFile = File(File(filesDir, "wallpaper_metadata"), "${file.nameWithoutExtension}.json")
+            if (!metadataFile.exists()) return null
+            return runCatching {
+                gson.fromJson(metadataFile.readText(), WaifuImage::class.java)
+            }.getOrElse {
+                AppLogger.e(TAG, "Failed to read metadata for ${file.name}", it)
+                null
+            }
+        }
+
+        private fun String.isHttpUrl(): Boolean {
+            return startsWith("https://") || startsWith("http://")
+        }
+
+        private fun waifuPreviewUrl(id: Long): String {
+            return "https://www.waifu.im/images/$id"
+        }
+
+        private fun pendingIntentFlags(): Int {
+            return PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         }
 
         private fun drawFrame() {
@@ -250,7 +388,13 @@ class WaifuWallpaperService : WallpaperService() {
                     now.get(Calendar.MINUTE) * 60 +
                     now.get(Calendar.SECOND)
             val timeIndex = secondsSinceMidnight / prefs.timeInterval
-            return (timeIndex + manualOffset) % count
+            val cacheStartSlot = sharedPrefs.getInt(KEY_CACHE_START_SLOT, 0)
+            val cacheRelativeIndex = if (timeIndex >= cacheStartSlot) {
+                timeIndex - cacheStartSlot
+            } else {
+                timeIndex
+            }
+            return (cacheRelativeIndex + manualOffset) % count
         }
 
         private fun scheduleNextChange() {
@@ -269,12 +413,19 @@ class WaifuWallpaperService : WallpaperService() {
 
         private fun getCachedImageCount(): Int {
             val dir = File(filesDir, "wallpapers")
-            return dir.listFiles()?.size ?: 0
+            return getCachedImageFiles(dir).size
         }
 
         private fun getCachedImageFile(index: Int): File? {
             val dir = File(filesDir, "wallpapers")
-            return dir.listFiles()?.firstOrNull { it.nameWithoutExtension == index.toString() }
+            return getCachedImageFiles(dir).getOrNull(index)
+        }
+
+        private fun getCachedImageFiles(dir: File): List<File> {
+            return dir.listFiles()
+                ?.filter { it.isFile && it.extension.lowercase() in CacheViewerActivity.IMAGE_EXTENSIONS }
+                ?.sortedBy { it.nameWithoutExtension.toIntOrNull() ?: Int.MAX_VALUE }
+                ?: emptyList()
         }
 
         private fun decodeSampledBitmap(file: File, reqWidth: Int, reqHeight: Int): Bitmap? {

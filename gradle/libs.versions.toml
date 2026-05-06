@@ -1,5 +1,5 @@
 [versions]
-agp = "9.0.1"
+agp = "9.2.1"
 kotlin = "2.1.10"
 coreKtx = "1.10.1"
 junit = "4.13.2"
@@ -30,4 +30,3 @@ preference = { group = "androidx.preference", name = "preference-ktx", version.r
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-

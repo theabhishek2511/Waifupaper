@@ -1,23 +1,33 @@
 package fyi.ryujin.waifu
 
+import android.Manifest
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
+import fyi.ryujin.waifu.data.KEY_CACHE_START_SLOT
 import fyi.ryujin.waifu.util.AppLogger
 import fyi.ryujin.waifu.work.RefreshWorker
 import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            AppLogger.i("SettingsActivity", "Notification permission granted=$granted")
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false)
         AppLogger.init(this)
         AppLogger.i("SettingsActivity", "Settings opened")
+        requestNotificationPermissionIfNeeded()
 
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
@@ -52,6 +63,12 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     class SettingsFragment : PreferenceFragmentCompat(),
         SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -75,8 +92,15 @@ class SettingsActivity : AppCompatActivity() {
 
             findPreference<Preference>("clear_cache")?.setOnPreferenceClickListener {
                 val dir = File(requireContext().filesDir, "wallpapers")
+                val metadataDir = File(requireContext().filesDir, "wallpaper_metadata")
                 val count = dir.listFiles()?.size ?: 0
                 dir.listFiles()?.forEach { it.delete() }
+                metadataDir.listFiles()?.forEach { it.delete() }
+                val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+                prefs.edit()
+                    .putInt(KEY_CACHE_START_SLOT, 0)
+                    .putInt("cache_version", prefs.getInt("cache_version", 0) + 1)
+                    .apply()
                 AppLogger.i("Settings", "Cache cleared: $count images deleted, triggering re-fetch")
                 Toast.makeText(requireContext(), R.string.cache_cleared, Toast.LENGTH_SHORT).show()
                 RefreshWorker.ensureImages(requireContext())
