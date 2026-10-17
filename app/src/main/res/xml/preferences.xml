@@ -2,6 +2,17 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <EditTextPreference
+        android:defaultValue="https://waifu-api-031n.onrender.com/"
+        android:dialogTitle="@string/pref_api_url_title"
+        android:inputType="textUri"
+        android:key="api_base_url"
+        android:selectAllOnFocus="true"
+        android:singleLine="true"
+        android:title="@string/pref_api_url_title"
+        android:summary="@string/pref_api_url_summary"
+        app:useSimpleSummaryProvider="true" />
+
     <ListPreference
         android:defaultValue="False"
         android:entries="@array/nsfw_entries"

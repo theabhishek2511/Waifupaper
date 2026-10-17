@@ -1,6 +1,6 @@
 # waifupaper
 
-live wallpaper android app that fetches anime-style images from [waifu.im](https://waifu.im) and cycles through them at a configurable interval.
+live wallpaper android app that fetches anime-style images from a configurable Waifu API instance and cycles through them at a configurable interval.
 
 ## features
 
@@ -8,6 +8,7 @@ live wallpaper android app that fetches anime-style images from [waifu.im](https
 - fetches a fresh batch of images at midnight based on your configured interval
 - configurable settings
   - NSFW filter (off / on / all)
+  - Waifu API base URL (defaults to the documented community instance; compatible instances can be selected)
   - image orientation (all / landscape / portrait / square)
   - wallpaper change interval
 - double-tap the wallpaper to immediately switch to the next image

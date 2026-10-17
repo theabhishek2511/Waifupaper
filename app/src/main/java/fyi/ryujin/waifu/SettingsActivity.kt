@@ -84,6 +84,17 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
 
+            findPreference<androidx.preference.EditTextPreference>("api_base_url")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    try {
+                        fyi.ryujin.waifu.api.WaifuApi.normalizeBaseUrl(newValue as String)
+                        true
+                    } catch (e: IllegalArgumentException) {
+                        Toast.makeText(requireContext(), e.message, Toast.LENGTH_LONG).show()
+                        false
+                    }
+                }
+
             findPreference<Preference>("view_cache")?.setOnPreferenceClickListener {
                 AppLogger.d("Settings", "Opening cache viewer")
                 startActivity(Intent(requireContext(), CacheViewerActivity::class.java))
@@ -151,7 +162,7 @@ class SettingsActivity : AppCompatActivity() {
             sharedPreferences: SharedPreferences?,
             key: String?
         ) {
-            if (key in listOf("nsfw", "orientation", "time_interval")) {
+            if (key in listOf("api_base_url", "nsfw", "orientation", "time_interval")) {
                 val value = sharedPreferences?.all?.get(key)
                 AppLogger.i("Settings", "Setting changed: $key=$value")
                 RefreshWorker.triggerSettingsChanged(requireContext())

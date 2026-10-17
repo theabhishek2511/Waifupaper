@@ -18,7 +18,7 @@ private const val TAG = "ImageRepository"
 const val KEY_CACHE_START_SLOT = "cache_start_slot"
 
 class ImageRepository(context: Context) {
-    private val api = WaifuApi.create()
+    private val api = WaifuApi.create(WallpaperPreferences(context).apiBaseUrl)
     private val gson = GsonBuilder().setPrettyPrinting().create()
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)

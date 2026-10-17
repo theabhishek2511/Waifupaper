@@ -4,6 +4,8 @@
         waifu.im</string>
     <string name="set_as_wallpaper">Set as Live Wallpaper</string>
     <string name="pref_nsfw_title">Content Filter</string>
+    <string name="pref_api_url_title">API Base URL</string>
+    <string name="pref_api_url_summary">Waifu API instance URL, e.g. https://waifu-api-031n.onrender.com/</string>
     <string name="pref_orientation_title">Image Orientation</string>
     <string name="pref_interval_title">Change Interval</string>
     <string name="pref_overlay_title">Dark Overlay</string>

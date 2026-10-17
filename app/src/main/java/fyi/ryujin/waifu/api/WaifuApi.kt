@@ -1,6 +1,7 @@
 package fyi.ryujin.waifu.api
 
 import com.google.gson.annotations.SerializedName
+import java.net.URI
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -52,9 +53,28 @@ interface WaifuApiService {
 }
 
 object WaifuApi {
-    fun create(): WaifuApiService {
+    const val DEFAULT_BASE_URL = "https://waifu-api-031n.onrender.com/"
+
+    fun normalizeBaseUrl(value: String): String {
+        val trimmed = value.trim()
+        require(trimmed.isNotEmpty()) { "API URL cannot be empty" }
+
+        val uri = try {
+            URI(trimmed)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid API URL", e)
+        }
+        require(uri.scheme.equals("https", ignoreCase = true) || uri.scheme.equals("http", ignoreCase = true)) {
+            "API URL must use http or https"
+        }
+        require(!uri.host.isNullOrBlank()) { "API URL must include a host" }
+        require(uri.rawQuery == null && uri.rawFragment == null) { "API URL cannot include a query or fragment" }
+        return if (trimmed.endsWith('/')) trimmed else "$trimmed/"
+    }
+
+    fun create(baseUrl: String = DEFAULT_BASE_URL): WaifuApiService {
         return Retrofit.Builder()
-            .baseUrl("https://api.waifu.im/")
+            .baseUrl(normalizeBaseUrl(baseUrl))
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(WaifuApiService::class.java)
